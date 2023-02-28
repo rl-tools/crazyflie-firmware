@@ -34,6 +34,7 @@ fw_sources = [
     "src/modules/src/planner.c",
     "src/modules/src/collision_avoidance.c",
     "src/modules/src/controller_pid.c",
+    "src/modules/src/adapter.cpp",
     "src/modules/src/position_controller_pid.c",
     "src/modules/src/attitude_pid_controller.c",
     "src/modules/src/pid.c",

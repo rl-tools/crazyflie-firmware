@@ -9,6 +9,9 @@
 #include "param.h"
 #include "math3d.h"
 
+#include "debug.h"
+#include "backprop_tools_adapter.h"
+
 #define ATTITUDE_UPDATE_DT    (float)(1.0f/ATTITUDE_RATE)
 
 static attitude_t attitudeDesired;
@@ -53,13 +56,24 @@ static float capAngle(float angle) {
   return result;
 }
 
+uint64_t backprop_tools_counter = 0;
+
 void controllerPid(control_t *control, const setpoint_t *setpoint,
                                          const sensorData_t *sensors,
                                          const state_t *state,
                                          const uint32_t tick)
 {
   control->controlMode = controlModeLegacy;
+  backprop_tools_counter++;
 
+  if (RATE_DO_EXECUTE(RATE_25_HZ, tick)) {
+    if(backprop_tools_counter % 25){
+      uint64_t before = usecTimestamp();
+      backprop_tools_run();
+      uint64_t after = usecTimestamp();
+      DEBUG_PRINT("evaluation took %lld us \n", after-before);
+    }
+  }
   if (RATE_DO_EXECUTE(ATTITUDE_RATE, tick)) {
     // Rate-controled YAW is moving YAW angle setpoint
     if (setpoint->mode.yaw == modeVelocity) {

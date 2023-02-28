@@ -75,3 +75,6 @@ obj-$(CONFIG_ESTIMATOR_KALMAN_ENABLE) += kalman_core/
 
 # Lighthouse
 obj-y += lighthouse/
+
+
+obj-y += backprop_tools_adapter.o

@@ -60,6 +60,7 @@ INCLUDES += -I$(LIB)/STM32_USB_OTG_Driver/inc
 INCLUDES += -I$(LIB)/STM32F4xx_StdPeriph_Driver/inc
 INCLUDES += -I$(LIB)/vl53l1 -I$(LIB)/vl53l1/core/inc
 INCLUDES += -I$(KBUILD_OUTPUT)/include/generated
+INCLUDES += -I/home/jonas/phd/projects/rl_for_control/layer-in-c/include
 
 # Here we tell Kbuild where to look for Kbuild files which will tell the
 # buildsystem which sources to build
@@ -113,7 +114,7 @@ PROG ?= $(PLATFORM)
 ifeq ($(CONFIG_DEBUG),y)
 ARCH_CFLAGS	+= -O0 -Wconversion
 else
-ARCH_CFLAGS += -Os -Werror
+ARCH_CFLAGS += -Os 
 endif
 
 _all:
