@@ -2,7 +2,8 @@
 #include "backprop_tools_adapter.h"
 
 #include <layer_in_c/operations/arm.h>
-#include <layer_in_c/nn_models/mlp/operations_dummy.h>
+#include <layer_in_c/nn/layers/dense/operations_arm.h>
+#include <layer_in_c/nn_models/mlp/operations_generic.h>
 #include <test_layer_in_c_nn_models_mlp_persist_code.h>
 #include <test_layer_in_c_nn_models_mlp_evaluation.h>
 
