@@ -30,6 +30,8 @@ ARCH_CFLAGS += -fno-math-errno -DARM_MATH_CM4 -D__FPU_PRESENT=1 -mfp16-format=ie
 ARCH_CFLAGS += -Wno-array-bounds -Wno-stringop-overread
 ARCH_CFLAGS += -Wno-stringop-overflow
 ARCH_CFLAGS += -DSTM32F4XX -DSTM32F40_41xxx -DHSE_VALUE=8000000 -DUSE_STDPERIPH_DRIVER
+ARCH_CFLAGS += -std=c++17
+DEBUG=1
 
 FREERTOS = $(srctree)/vendor/FreeRTOS
 PORT = $(FREERTOS)/portable/GCC/ARM_CM4F
