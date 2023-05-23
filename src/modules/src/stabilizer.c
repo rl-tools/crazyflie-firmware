@@ -306,10 +306,10 @@ static void stabilizerTask(void* param)
       if (emergencyStop || (systemIsArmed() == false)) {
         motorsStop();
       } else {
-        powerDistribution(&control, &motorThrustUncapped);
+        // powerDistribution(&control, &motorThrustUncapped);
         batteryCompensation(&motorThrustUncapped, &motorThrustBatCompUncapped);
-        powerDistributionCap(&motorThrustBatCompUncapped, &motorPwm);
-        setMotorRatios(&motorPwm);
+        // powerDistributionCap(&motorThrustBatCompUncapped, &motorPwm);
+        // setMotorRatios(&motorPwm);
       }
 
 #ifdef CONFIG_DECK_USD
