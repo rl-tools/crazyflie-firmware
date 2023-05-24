@@ -307,7 +307,7 @@ static void stabilizerTask(void* param)
         motorsStop();
       } else {
         // powerDistribution(&control, &motorThrustUncapped);
-        batteryCompensation(&motorThrustUncapped, &motorThrustBatCompUncapped);
+        // batteryCompensation(&motorThrustUncapped, &motorThrustBatCompUncapped);
         // powerDistributionCap(&motorThrustBatCompUncapped, &motorPwm);
         // setMotorRatios(&motorPwm);
       }
