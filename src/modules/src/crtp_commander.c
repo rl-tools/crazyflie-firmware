@@ -32,7 +32,9 @@
 #include "commander.h"
 #include "crtp.h"
 
+#ifdef BACKPROP_TOOLS_CONTROLLER
 #include "backprop_tools_controller.h"
+#endif
 
 
 static bool isInit;
@@ -93,7 +95,9 @@ void learnedControllerDecoder(const void *data, size_t datalen)
 {
   ASSERT(datalen == sizeof(struct learnedControllerPacket));
   // const struct learnedControllerPacket *values = data;
+#ifdef BACKPROP_TOOLS_CONTROLLER
   learned_controller_packet_received();
+#endif()
 }
 
 

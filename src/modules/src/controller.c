@@ -10,7 +10,11 @@
 
 #include "autoconf.h"
 
+#ifdef BACKPROP_TOOLS_CONTROLLER
 #define DEFAULT_CONTROLLER ControllerTypeOot
+#else
+#define DEFAULT_CONTROLLER ControllerTypePID
+#endif
 static ControllerType currentController = ControllerTypeAutoSelect;
 
 static void initController();
