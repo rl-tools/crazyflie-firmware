@@ -97,7 +97,7 @@ void learnedControllerDecoder(const void *data, size_t datalen)
   // const struct learnedControllerPacket *values = data;
 #ifdef BACKPROP_TOOLS_CONTROLLER
   learned_controller_packet_received();
-#endif()
+#endif
 }
 
 
