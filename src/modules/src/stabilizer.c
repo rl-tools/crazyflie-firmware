@@ -83,6 +83,10 @@ static STATS_CNT_RATE_DEFINE(stabilizerRate, 500);
 static rateSupervisor_t rateSupervisorContext;
 static bool rateWarningDisplayed = false;
 
+#ifdef BACKPROP_TOOLS_CONTROLLER
+static bool backprop_tools_overwrite_stabilizer = false;
+#endif
+
 static struct {
   // position - mm
   int16_t x;
@@ -118,6 +122,12 @@ static struct {
   int16_t ay;
   int16_t az;
 } setpointCompressed;
+
+#ifdef BACKPROP_TOOLS_CONTROLLER
+void set_backprop_tools_overwrite_stabilizer(bool overwrite){
+  backprop_tools_overwrite_stabilizer = overwrite;
+}
+#endif
 
 STATIC_MEM_TASK_ALLOC(stabilizerTask, STABILIZER_TASK_STACKSIZE);
 
@@ -184,6 +194,9 @@ void stabilizerInit(StateEstimatorType estimator)
   collisionAvoidanceInit();
   estimatorType = stateEstimatorGetType();
   controllerType = controllerGetType();
+  #ifdef BACKPROP_TOOLS_CONTROLLER
+  backprop_tools_overwrite_stabilizer = false;
+  #endif
 
   STATIC_MEM_TASK_CREATE(stabilizerTask, stabilizerTask, STABILIZER_TASK_NAME, NULL, STABILIZER_TASK_PRI);
 
@@ -306,11 +319,15 @@ static void stabilizerTask(void* param)
       if (emergencyStop || (systemIsArmed() == false)) {
         motorsStop();
       } else {
-#ifndef BACKPROP_TOOLS_CONTROLLER
-          powerDistribution(&control, &motorThrustUncapped);
-          batteryCompensation(&motorThrustUncapped, &motorThrustBatCompUncapped);
-          powerDistributionCap(&motorThrustBatCompUncapped, &motorPwm);
-          setMotorRatios(&motorPwm);
+#ifdef BACKPROP_TOOLS_CONTROLLER
+          if(!backprop_tools_overwrite_stabilizer){
+#endif
+            powerDistribution(&control, &motorThrustUncapped);
+            batteryCompensation(&motorThrustUncapped, &motorThrustBatCompUncapped);
+            powerDistributionCap(&motorThrustBatCompUncapped, &motorPwm);
+            setMotorRatios(&motorPwm);
+#ifdef BACKPROP_TOOLS_CONTROLLER
+          }
 #endif
       }
 
