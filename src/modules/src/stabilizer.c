@@ -322,10 +322,10 @@ static void stabilizerTask(void* param)
 #ifdef BACKPROP_TOOLS_CONTROLLER
           if(!backprop_tools_overwrite_stabilizer){
 #endif
-            powerDistribution(&control, &motorThrustUncapped);
-            batteryCompensation(&motorThrustUncapped, &motorThrustBatCompUncapped);
-            powerDistributionCap(&motorThrustBatCompUncapped, &motorPwm);
-            setMotorRatios(&motorPwm);
+            // powerDistribution(&control, &motorThrustUncapped);
+            // batteryCompensation(&motorThrustUncapped, &motorThrustBatCompUncapped);
+            // powerDistributionCap(&motorThrustBatCompUncapped, &motorPwm);
+            // setMotorRatios(&motorPwm);
 #ifdef BACKPROP_TOOLS_CONTROLLER
           }
 #endif
