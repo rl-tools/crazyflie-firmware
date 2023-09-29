@@ -88,6 +88,7 @@ static controllerMellinger_t g_self = {
   .i_error_m_z = 0,
 };
 
+static bool enable_integrators = true;
 
 void controllerMellingerReset(controllerMellinger_t* self)
 {
@@ -104,6 +105,7 @@ void controllerMellingerInit(controllerMellinger_t* self)
   // copy default values (bindings), or does nothing (firmware)
   *self = g_self;
 
+  enable_integrators = true;
   controllerMellingerReset(self);
 }
 
@@ -274,6 +276,12 @@ void controllerMellinger(controllerMellinger_t* self, control_t *control, const 
   self->i_error_m_z += (-eR.z) * dt;
   self->i_error_m_z = clamp(self->i_error_m_z, -self->i_range_m_z, self->i_range_m_z);
 
+  if(!enable_integrators){
+    self->i_error_m_x = 0;
+    self->i_error_m_y = 0;
+    self->i_error_m_z = 0;
+  }
+
   // Moment:
   M.x = -self->kR_xy * eR.x + self->kw_xy * ew.x + self->ki_m_xy * self->i_error_m_x + self->kd_omega_rp * err_d_roll;
   M.y = -self->kR_xy * eR.y + self->kw_xy * ew.y + self->ki_m_xy * self->i_error_m_y + self->kd_omega_rp * err_d_pitch;
@@ -318,6 +326,11 @@ void controllerMellinger(controllerMellinger_t* self, control_t *control, const 
 void controllerMellingerFirmwareInit(void)
 {
   controllerMellingerInit(&g_self);
+}
+
+void controllerMellingerFirmwareEnableIntegrators(bool flag)
+{
+  enable_integrators = flag;
 }
 
 bool controllerMellingerFirmwareTest(void)
