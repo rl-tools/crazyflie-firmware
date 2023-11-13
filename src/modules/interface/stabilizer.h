@@ -33,8 +33,8 @@
 
 #define EMERGENCY_STOP_TIMEOUT_DISABLED (-1)
 
-#ifdef BACKPROP_TOOLS_CONTROLLER
-void set_backprop_tools_overwrite_stabilizer(bool);
+#ifdef RL_TOOLS_CONTROLLER
+void set_rl_tools_overwrite_stabilizer(bool);
 #endif
 
 /**
