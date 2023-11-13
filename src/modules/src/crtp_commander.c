@@ -96,7 +96,7 @@ void learnedControllerDecoder(const void *data, size_t datalen)
   ASSERT(datalen == sizeof(struct learnedControllerPacket));
   // const struct learnedControllerPacket *values = data;
 #ifdef RL_TOOLS_CONTROLLER
-  learned_controller_packet_received();
+  rl_tools_controller_packet_received();
 #endif
 }
 
