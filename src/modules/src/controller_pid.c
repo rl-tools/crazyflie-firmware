@@ -10,7 +10,7 @@
 #include "math3d.h"
 
 #include "debug.h"
-#include "backprop_tools_adapter.h"
+#include "rl_tools_adapter.h"
 
 #define ATTITUDE_UPDATE_DT    (float)(1.0f/ATTITUDE_RATE)
 
@@ -56,7 +56,7 @@ static float capAngle(float angle) {
   return result;
 }
 
-uint64_t backprop_tools_counter = 0;
+uint64_t rl_tools_counter = 0;
 #define BACKPROP_TOOLS_OUTPUT_DIM 20
 float output_mem[BACKPROP_TOOLS_OUTPUT_DIM];
 
@@ -68,10 +68,10 @@ void controllerPid(control_t *control, const setpoint_t *setpoint,
   control->controlMode = controlModeLegacy;
 
   if (RATE_DO_EXECUTE(RATE_25_HZ, tick)) {
-    backprop_tools_counter++;
-    if(backprop_tools_counter % 25 == 0){
+    rl_tools_counter++;
+    if(rl_tools_counter % 25 == 0){
       uint64_t before = usecTimestamp();
-      backprop_tools_run((float*)output_mem);
+      rl_tools_run((float*)output_mem);
       uint64_t after = usecTimestamp();
       DEBUG_PRINT("evaluation took %lld us \n", after-before);
       for(int output_i = 0; output_i < BACKPROP_TOOLS_OUTPUT_DIM; output_i++){

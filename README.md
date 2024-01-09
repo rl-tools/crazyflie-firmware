@@ -1,3 +1,8 @@
+If you have not checked out the submodules:
+```
+git submodule update --init --recursive
+```
+
 Build using `make cf2_defconfig; make clean; make -j12`
 
 Upload using `CLOAD_CMDS="-w radio://0/80/2M" make cload`
