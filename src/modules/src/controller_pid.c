@@ -31,6 +31,7 @@ void controllerPidInit(void)
 {
   attitudeControllerInit(ATTITUDE_UPDATE_DT);
   positionControllerInit();
+  rl_tools_init();
 }
 
 bool controllerPidTest(void)
@@ -57,7 +58,7 @@ static float capAngle(float angle) {
 }
 
 uint64_t rl_tools_counter = 0;
-#define BACKPROP_TOOLS_OUTPUT_DIM 20
+#define BACKPROP_TOOLS_OUTPUT_DIM 4
 float output_mem[BACKPROP_TOOLS_OUTPUT_DIM];
 
 void controllerPid(control_t *control, const setpoint_t *setpoint,
@@ -71,13 +72,15 @@ void controllerPid(control_t *control, const setpoint_t *setpoint,
     rl_tools_counter++;
     if(rl_tools_counter % 25 == 0){
       uint64_t before = usecTimestamp();
-      rl_tools_run((float*)output_mem);
+      float abs_diff = rl_tools_run((float*)output_mem);
       uint64_t after = usecTimestamp();
-      DEBUG_PRINT("evaluation took %lld us \n", after-before);
+      int iterations = 10;
+      DEBUG_PRINT("evaluation took %lld us \n", (after-before)/iterations);
       for(int output_i = 0; output_i < BACKPROP_TOOLS_OUTPUT_DIM; output_i++){
           DEBUG_PRINT("output[%d] = %f \n", output_i, output_mem[output_i]);
       }
       DEBUG_PRINT("\n");
+      DEBUG_PRINT("Absolute diff: %f\n", abs_diff);
     }
   }
   if (RATE_DO_EXECUTE(ATTITUDE_RATE, tick)) {
