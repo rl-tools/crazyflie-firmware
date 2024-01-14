@@ -15,7 +15,7 @@ using DEVICE = rlt::devices::arm::OPT<DEV_SPEC>;
 DEVICE device;
 using TI = typename rl_tools_export::model::MODEL::TI;
 using T = typename rl_tools_export::model::MODEL::T;
-rl_tools_export::model::MODEL::template DoubleBuffer<1, rlt::MatrixStaticTag> buffers;
+rl_tools_export::model::MODEL::template Buffer<1, rlt::MatrixStaticTag> buffers;
 rlt::MatrixStatic<rlt::matrix::Specification<T, TI, 1, rl_tools_export::model::MODEL::OUTPUT_DIM>> output;
 
 void rl_tools_init(){
