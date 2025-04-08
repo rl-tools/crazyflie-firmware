@@ -32,6 +32,10 @@
 #include "commander.h"
 #include "crtp.h"
 
+#ifdef RL_TOOLS_CONTROLLER
+#include "rl_tools_controller.h"
+#endif
+
 
 static bool isInit;
 
@@ -81,8 +85,21 @@ enum crtpSetpointGenericChannel {
 /* ---===== 1 - metaCommand_e enum =====--- */
 enum metaCommand_e {
   metaNotifySetpointsStop = 0,
+  metaLearnedController = 1,
   nMetaCommands,
 };
+
+struct learnedControllerPacket {
+} __attribute__((packed));
+void learnedControllerDecoder(const void *data, size_t datalen)
+{
+  ASSERT(datalen == sizeof(struct learnedControllerPacket));
+  // const struct learnedControllerPacket *values = data;
+#ifdef RL_TOOLS_CONTROLLER
+  rl_tools_controller_packet_received();
+#endif
+}
+
 
 typedef void (*metaCommandDecoder_t)(const void *data, size_t datalen);
 
@@ -105,6 +122,7 @@ void notifySetpointsStopDecoder(const void *data, size_t datalen)
  /* ---===== packetDecoders array =====--- */
 const static metaCommandDecoder_t metaCommandDecoders[] = {
   [metaNotifySetpointsStop] = notifySetpointsStopDecoder,
+  [metaLearnedController] = learnedControllerDecoder
 };
 
 /* Decoder switch */
