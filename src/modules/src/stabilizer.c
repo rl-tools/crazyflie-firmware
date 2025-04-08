@@ -361,7 +361,7 @@ static void stabilizerTask(void* param)
       // Critical for safety, be careful if you modify this code!
       // The supervisor will already set thrust to 0 in the setpoint if needed, but to be extra sure prevent motors from running.
       if (areMotorsAllowedToRun) {
-        controlMotors(&control);
+        // controlMotors(&control);
       } else {
         motorsStop();
       }
