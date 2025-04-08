@@ -31,6 +31,12 @@
 
 #include "estimator.h"
 
+#define EMERGENCY_STOP_TIMEOUT_DISABLED (-1)
+
+#ifdef RL_TOOLS_CONTROLLER
+void set_rl_tools_overwrite_stabilizer(bool);
+#endif
+
 /**
  * Initialize the stabilizer subsystem and launch the stabilizer loop task.
  * The stabilizer loop task will wait on systemWaitStart() before running.

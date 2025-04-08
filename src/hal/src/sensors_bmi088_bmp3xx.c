@@ -322,7 +322,7 @@ static void sensorsTask(void *param)
       gyroScaledIMU.y =  (gyroRaw.y - gyroBias.y) * SENSORS_BMI088_DEG_PER_LSB_CFG;
       gyroScaledIMU.z =  (gyroRaw.z - gyroBias.z) * SENSORS_BMI088_DEG_PER_LSB_CFG;
       sensorsAlignToAirframe(&gyroScaledIMU, &sensorData.gyro);
-      applyAxis3fLpf((lpf2pData*)(&gyroLpf), &sensorData.gyro);
+      // applyAxis3fLpf((lpf2pData*)(&gyroLpf), &sensorData.gyro);
 
       measurement.type = MeasurementTypeGyroscope;
       measurement.data.gyroscope.gyro = sensorData.gyro;
@@ -334,7 +334,7 @@ static void sensorsTask(void *param)
       accScaledIMU.z = accelRaw.z * SENSORS_BMI088_G_PER_LSB_CFG / accScale;
       sensorsAlignToAirframe(&accScaledIMU, &accScaled);
       sensorsAccAlignToGravity(&accScaled, &sensorData.acc);
-      applyAxis3fLpf((lpf2pData*)(&accLpf), &sensorData.acc);
+      // applyAxis3fLpf((lpf2pData*)(&accLpf), &sensorData.acc);
 
       measurement.type = MeasurementTypeAcceleration;
       measurement.data.acceleration.acc = sensorData.acc;
