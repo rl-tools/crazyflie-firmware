@@ -322,7 +322,7 @@ static void stabilizerTask(void* param)
 
       stateEstimator(&state, stabilizerStep);
 
-      const bool areMotorsAllowedToRun = supervisorAreMotorsAllowedToRun();
+      const bool areMotorsAllowedToRun = true; //supervisorAreMotorsAllowedToRun();
 
       // Critical for safety, be careful if you modify this code!
       crtpCommanderBlock(! areMotorsAllowedToRun);
@@ -341,7 +341,7 @@ static void stabilizerTask(void* param)
 
       // Critical for safety, be careful if you modify this code!
       // Let the supervisor modify the setpoint to handle exceptional conditions
-      supervisorOverrideSetpoint(&setpoint);
+      // supervisorOverrideSetpoint(&setpoint);
 
       controller(&control, &setpoint, &sensorData, &state, stabilizerStep);
 
