@@ -45,6 +45,7 @@ obj-y += supervisor.o
 obj-y += supervisor_state_machine.o
 obj-y += sysload.o
 obj-y += system.o
+obj-y += uart1_bridge.o
 obj-$(CONFIG_DECK_LOCO) += tdoaEngineInstance.o
 obj-y += vcp_esc_passthrough.o
 obj-y += worker.o

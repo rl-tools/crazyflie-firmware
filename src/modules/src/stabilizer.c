@@ -56,6 +56,7 @@
 #include "statsCnt.h"
 #include "static_mem.h"
 #include "rateSupervisor.h"
+#include "uart1_bridge.h"
 
 static bool isInit;
 
@@ -257,6 +258,7 @@ static void controlMotors(const control_t* control) {
   batteryCompensation(&motorThrustUncapped, &motorThrustBatCompUncapped);
   const bool isCapped = powerDistributionCap(&motorThrustBatCompUncapped, &motorPwm);
   logCapWarning(isCapped);
+  uart1BridgeApplyOverride(&motorPwm);
   setMotorRatios(&motorPwm);
 }
 

@@ -1,0 +1,276 @@
+#define DEBUG_MODULE "U1BR"
+
+#include "uart1_bridge.h"
+
+#include "FreeRTOS.h"
+#include "queue.h"
+#include "task.h"
+
+#include "config.h"
+#include "crtp.h"
+#include "debug.h"
+#include "log.h"
+#include "param.h"
+#include "static_mem.h"
+#include "system.h"
+#include "uart1.h"
+
+#define CRTP_PORT_OFFBOARD_ARM 0x0E
+
+#define UART1_BRIDGE_BAUDRATE        115200
+
+#define UART1_BRIDGE_RX_TASK_NAME    "U1BR_RX"
+#define UART1_BRIDGE_TX_TASK_NAME    "U1BR_TX"
+#define UART1_BRIDGE_TASK_STACKSIZE  configMINIMAL_STACK_SIZE
+#define UART1_BRIDGE_RX_TASK_PRI     2
+#define UART1_BRIDGE_TX_TASK_PRI     1
+
+#define TX_QUEUE_LENGTH              128
+
+#define FRAME_DATA_BYTES             12
+#define FRAME_RAW_BYTES              10
+#define OFFBOARD_TIMEOUT_MS          50
+#define ARM_TIMEOUT_MS               200
+
+static xQueueHandle txQueue;
+STATIC_MEM_QUEUE_ALLOC(txQueue, TX_QUEUE_LENGTH, sizeof(uint8_t));
+
+static void uart1BridgeRxTask(void *arg);
+static void uart1BridgeTxTask(void *arg);
+static void offboardArmPortHandler(CRTPPacket *pk);
+STATIC_MEM_TASK_ALLOC(uart1BridgeRxTask, UART1_BRIDGE_TASK_STACKSIZE);
+STATIC_MEM_TASK_ALLOC(uart1BridgeTxTask, UART1_BRIDGE_TASK_STACKSIZE);
+
+static bool isInit = false;
+
+static volatile uint8_t offboardArm = 0;
+static volatile TickType_t lastArmPacketTick = 0;
+
+static uint16_t latestPwm[4] = {0, 0, 0, 0};
+static TickType_t lastFrameTick = 0;
+static bool haveFrame = false;
+
+static uint32_t framesOk = 0;
+static uint32_t framesBadCrc = 0;
+static uint32_t framesMsbErr = 0;
+
+static bool directEngaged = false;
+
+static uint16_t crc16_ccitt(const uint8_t *data, size_t n)
+{
+  uint16_t crc = 0xFFFF;
+  for (size_t i = 0; i < n; i++) {
+    crc ^= (uint16_t)data[i] << 8;
+    for (int j = 0; j < 8; j++) {
+      crc = (crc & 0x8000) ? (uint16_t)((crc << 1) ^ 0x1021) : (uint16_t)(crc << 1);
+    }
+  }
+  return crc;
+}
+
+static void unpack7(const uint8_t in[FRAME_DATA_BYTES], uint8_t out[FRAME_RAW_BYTES])
+{
+  uint32_t acc = 0;
+  int nbits = 0;
+  int outIdx = 0;
+  for (int i = 0; i < FRAME_DATA_BYTES; i++) {
+    acc = (acc << 7) | (in[i] & 0x7F);
+    nbits += 7;
+    if (nbits >= 8 && outIdx < FRAME_RAW_BYTES) {
+      nbits -= 8;
+      out[outIdx++] = (uint8_t)((acc >> nbits) & 0xFF);
+    }
+  }
+}
+
+static void applyFrame(const uint8_t raw[FRAME_RAW_BYTES])
+{
+  uint16_t rxCrc = ((uint16_t)raw[8] << 8) | raw[9];
+  uint16_t exCrc = crc16_ccitt(raw, 8);
+  if (rxCrc != exCrc) {
+    framesBadCrc++;
+    return;
+  }
+
+  taskENTER_CRITICAL();
+  latestPwm[0] = ((uint16_t)raw[0] << 8) | raw[1];
+  latestPwm[1] = ((uint16_t)raw[2] << 8) | raw[3];
+  latestPwm[2] = ((uint16_t)raw[4] << 8) | raw[5];
+  latestPwm[3] = ((uint16_t)raw[6] << 8) | raw[7];
+  lastFrameTick = xTaskGetTickCount();
+  haveFrame = true;
+  taskEXIT_CRITICAL();
+
+  framesOk++;
+}
+
+static void uart1BridgeRxTask(void *arg)
+{
+  systemWaitStart();
+
+  uint8_t dataBuf[FRAME_DATA_BYTES];
+  int dataIdx = -1;
+
+  while (1) {
+    char c;
+    uart1Getchar(&c);
+    uint8_t b = (uint8_t)c;
+
+    if (b & 0x80) {
+      dataIdx = 0;
+      continue;
+    }
+
+    if (dataIdx < 0) {
+      continue;
+    }
+
+    dataBuf[dataIdx++] = b;
+    if (dataIdx == FRAME_DATA_BYTES) {
+      uint8_t raw[FRAME_RAW_BYTES];
+      unpack7(dataBuf, raw);
+      applyFrame(raw);
+      dataIdx = -1;
+    }
+  }
+}
+
+static void uart1BridgeTxTask(void *arg)
+{
+  systemWaitStart();
+
+  while (1) {
+    uint8_t byte;
+    if (xQueueReceive(txQueue, &byte, portMAX_DELAY) == pdTRUE) {
+      uart1SendData(1, &byte);
+    }
+  }
+}
+
+static void offboardArmPortHandler(CRTPPacket *pk)
+{
+  if (pk == NULL || pk->size < 1) {
+    return;
+  }
+  lastArmPacketTick = xTaskGetTickCount();
+
+  uint8_t newArm = pk->data[0] ? 1 : 0;
+  if (newArm != offboardArm) {
+    uart1BridgePrintf("[u1br] arm %s edge (%u -> %u)\r\n",
+                      newArm ? "rising" : "falling",
+                      (unsigned)offboardArm, (unsigned)newArm);
+  }
+  offboardArm = newArm;
+}
+
+void uart1BridgeInit(void)
+{
+  if (isInit) {
+    return;
+  }
+
+  uart1Init(UART1_BRIDGE_BAUDRATE);
+
+  txQueue = STATIC_MEM_QUEUE_CREATE(txQueue);
+
+  crtpRegisterPortCB(CRTP_PORT_OFFBOARD_ARM, offboardArmPortHandler);
+
+  STATIC_MEM_TASK_CREATE(uart1BridgeRxTask, uart1BridgeRxTask,
+                         UART1_BRIDGE_RX_TASK_NAME, NULL,
+                         UART1_BRIDGE_RX_TASK_PRI);
+  STATIC_MEM_TASK_CREATE(uart1BridgeTxTask, uart1BridgeTxTask,
+                         UART1_BRIDGE_TX_TASK_NAME, NULL,
+                         UART1_BRIDGE_TX_TASK_PRI);
+
+  isInit = true;
+}
+
+bool uart1BridgeSend(const uint8_t *data, size_t n)
+{
+  if (!isInit || data == NULL) {
+    return false;
+  }
+
+  for (size_t i = 0; i < n; i++) {
+    if (xQueueSend(txQueue, &data[i], 0) != pdTRUE) {
+      return false;
+    }
+  }
+  return true;
+}
+
+int uart1BridgePutc(int c)
+{
+  uint8_t b = (uint8_t)c;
+  if (!isInit) {
+    return c;
+  }
+  xQueueSend(txQueue, &b, 0);
+  return c;
+}
+
+void uart1BridgeApplyOverride(motors_thrust_pwm_t *motorPwm)
+{
+  if (!isInit || motorPwm == NULL) {
+    return;
+  }
+
+  if (offboardArm &&
+      ((xTaskGetTickCount() - lastArmPacketTick) >= M2T(ARM_TIMEOUT_MS))) {
+    uart1BridgePrintf("[u1br] arm timeout (>%u ms), forcing 0\r\n",
+                      (unsigned)ARM_TIMEOUT_MS);
+    offboardArm = 0;
+  }
+
+  bool armed = (offboardArm != 0);
+
+  bool fresh;
+  uint16_t pwm[4];
+  taskENTER_CRITICAL();
+  fresh = haveFrame &&
+          ((xTaskGetTickCount() - lastFrameTick) < M2T(OFFBOARD_TIMEOUT_MS));
+  pwm[0] = latestPwm[0];
+  pwm[1] = latestPwm[1];
+  pwm[2] = latestPwm[2];
+  pwm[3] = latestPwm[3];
+  taskEXIT_CRITICAL();
+
+  bool engage = armed && fresh;
+
+  if (engage) {
+    motorPwm->motors.m1 = pwm[0];
+    motorPwm->motors.m2 = pwm[1];
+    motorPwm->motors.m3 = pwm[2];
+    motorPwm->motors.m4 = pwm[3];
+  }
+
+  directEngaged = engage;
+
+  static uint32_t heartbeatCounter = 0;
+  if (++heartbeatCounter >= 1000) {
+    heartbeatCounter = 0;
+    if (engage) {
+      uart1BridgePrintf("[u1br] active pwm=[%u %u %u %u]\r\n",
+                        (unsigned)pwm[0], (unsigned)pwm[1],
+                        (unsigned)pwm[2], (unsigned)pwm[3]);
+    } else {
+      uart1BridgePrintf("[u1br] inactive (arm=%u fresh=%u)\r\n",
+                        (unsigned)armed, (unsigned)fresh);
+    }
+  }
+}
+
+PARAM_GROUP_START(u1br)
+PARAM_ADD(PARAM_UINT8 | PARAM_RONLY, engaged, &directEngaged)
+PARAM_GROUP_STOP(u1br)
+
+LOG_GROUP_START(u1br)
+LOG_ADD(LOG_UINT8,  offboardArm, &offboardArm)
+LOG_ADD(LOG_UINT32, framesOk, &framesOk)
+LOG_ADD(LOG_UINT32, framesBadCrc, &framesBadCrc)
+LOG_ADD(LOG_UINT32, framesMsbErr, &framesMsbErr)
+LOG_ADD(LOG_UINT16, pwm0, &latestPwm[0])
+LOG_ADD(LOG_UINT16, pwm1, &latestPwm[1])
+LOG_ADD(LOG_UINT16, pwm2, &latestPwm[2])
+LOG_ADD(LOG_UINT16, pwm3, &latestPwm[3])
+LOG_GROUP_STOP(u1br)

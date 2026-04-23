@@ -51,6 +51,7 @@
 #include "uart2.h"
 #include "comm.h"
 #include "stabilizer.h"
+#include "uart1_bridge.h"
 #include "commander.h"
 #include "console.h"
 #include "usblink.h"
@@ -208,6 +209,7 @@ void systemTask(void *arg)
   deckInit();
   estimator = deckGetRequiredEstimator();
   stabilizerInit(estimator);
+  uart1BridgeInit();
   if (deckGetRequiredLowInterferenceRadioMode() && platformConfigPhysicalLayoutAntennasAreClose())
   {
     platformSetLowInterferenceRadioMode();
