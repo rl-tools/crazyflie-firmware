@@ -56,6 +56,8 @@ static uint32_t framesMsbErr = 0;
 
 static bool directEngaged = false;
 
+static float motorDivider = 20.0f;
+
 static uint16_t crc16_ccitt(const uint8_t *data, size_t n)
 {
   uint16_t crc = 0xFFFF;
@@ -237,11 +239,24 @@ void uart1BridgeApplyOverride(motors_thrust_pwm_t *motorPwm)
 
   bool engage = armed && fresh;
 
+  float divider = motorDivider;
+  uint16_t scaledPwm[4];
+  if (divider > 0.0f) {
+    for (int i = 0; i < 4; i++) {
+      float s = (float)pwm[i] / divider;
+      if (s < 0.0f) s = 0.0f;
+      if (s > 65535.0f) s = 65535.0f;
+      scaledPwm[i] = (uint16_t)s;
+    }
+  } else {
+    scaledPwm[0] = scaledPwm[1] = scaledPwm[2] = scaledPwm[3] = 0;
+  }
+
   if (engage) {
-    motorPwm->motors.m1 = pwm[0];
-    motorPwm->motors.m2 = pwm[1];
-    motorPwm->motors.m3 = pwm[2];
-    motorPwm->motors.m4 = pwm[3];
+    motorPwm->motors.m1 = scaledPwm[0];
+    motorPwm->motors.m2 = scaledPwm[1];
+    motorPwm->motors.m3 = scaledPwm[2];
+    motorPwm->motors.m4 = scaledPwm[3];
   }
 
   directEngaged = engage;
@@ -250,9 +265,12 @@ void uart1BridgeApplyOverride(motors_thrust_pwm_t *motorPwm)
   if (++heartbeatCounter >= 1000) {
     heartbeatCounter = 0;
     if (engage) {
-      uart1BridgePrintf("[u1br] active pwm=[%u %u %u %u]\r\n",
+      uart1BridgePrintf("[u1br] active pwm=[%u %u %u %u] scaled=[%u %u %u %u] div=%d/1000\r\n",
                         (unsigned)pwm[0], (unsigned)pwm[1],
-                        (unsigned)pwm[2], (unsigned)pwm[3]);
+                        (unsigned)pwm[2], (unsigned)pwm[3],
+                        (unsigned)scaledPwm[0], (unsigned)scaledPwm[1],
+                        (unsigned)scaledPwm[2], (unsigned)scaledPwm[3],
+                        (int)(divider * 1000.0f));
     } else {
       uart1BridgePrintf("[u1br] inactive (arm=%u fresh=%u)\r\n",
                         (unsigned)armed, (unsigned)fresh);
@@ -262,6 +280,7 @@ void uart1BridgeApplyOverride(motors_thrust_pwm_t *motorPwm)
 
 PARAM_GROUP_START(u1br)
 PARAM_ADD(PARAM_UINT8 | PARAM_RONLY, engaged, &directEngaged)
+PARAM_ADD(PARAM_FLOAT, motorDiv, &motorDivider)
 PARAM_GROUP_STOP(u1br)
 
 LOG_GROUP_START(u1br)
