@@ -66,6 +66,12 @@ static uint32_t framesBadFlags = 0;
 
 static bool directEngaged = false;
 static bool selfActivated = false;
+static bool frameFresh = false;
+static bool armActive = false;
+static bool activateOk = false;
+static bool motorDividerOk = true;
+static bool noHealthTest = true;
+static bool supervisorAllowsMotors = true;
 
 static float motorDivider = 20.0f;
 
@@ -237,27 +243,54 @@ int uart1BridgePutc(int c)
   return c;
 }
 
-void uart1BridgeApplyOverride(motors_thrust_pwm_t *motorPwm)
+static void refreshOutputConditions(void)
 {
-  if (!isInit || motorPwm == NULL) {
-    return;
-  }
+  const TickType_t now = xTaskGetTickCount();
 
   if (offboardArm &&
-      ((xTaskGetTickCount() - lastArmPacketTick) >= M2T(ARM_TIMEOUT_MS))) {
+      ((now - lastArmPacketTick) >= M2T(ARM_TIMEOUT_MS))) {
     uart1BridgePrintf("[u1br] arm timeout (>%u ms), forcing 0\r\n",
                       (unsigned)ARM_TIMEOUT_MS);
     offboardArm = 0;
   }
 
-  bool armed = (offboardArm != 0);
+  uint8_t flags;
+  taskENTER_CRITICAL();
+  frameFresh = haveFrame && ((now - lastFrameTick) < M2T(OFFBOARD_TIMEOUT_MS));
+  flags = latestFlags;
+  taskEXIT_CRITICAL();
+
+  armActive = (offboardArm != 0);
+  selfActivated = frameFresh && ((flags & OFFBOARD_FLAG_SELF_ACTIVATE) != 0);
+  activateOk = armActive || selfActivated;
+  motorDividerOk = (motorDivider > 0.0f);
+}
+
+void uart1BridgeSetOutputConditions(bool noHealthTestActive, bool supervisorAllows)
+{
+  noHealthTest = noHealthTestActive;
+  supervisorAllowsMotors = supervisorAllows;
+  refreshOutputConditions();
+
+  if (!noHealthTest || !supervisorAllowsMotors) {
+    directEngaged = false;
+  }
+}
+
+void uart1BridgeApplyOverride(motors_thrust_pwm_t *motorPwm)
+{
+  if (!isInit || motorPwm == NULL) {
+    directEngaged = false;
+    return;
+  }
+
+  refreshOutputConditions();
 
   bool fresh;
   uint8_t flags;
   uint16_t pwm[4];
   taskENTER_CRITICAL();
-  fresh = haveFrame &&
-          ((xTaskGetTickCount() - lastFrameTick) < M2T(OFFBOARD_TIMEOUT_MS));
+  fresh = frameFresh;
   flags = latestFlags;
   pwm[0] = latestPwm[0];
   pwm[1] = latestPwm[1];
@@ -265,8 +298,8 @@ void uart1BridgeApplyOverride(motors_thrust_pwm_t *motorPwm)
   pwm[3] = latestPwm[3];
   taskEXIT_CRITICAL();
 
-  bool selfActivate = fresh && ((flags & OFFBOARD_FLAG_SELF_ACTIVATE) != 0);
-  bool engage = fresh && (armed || selfActivate);
+  bool selfActivate = selfActivated;
+  bool engage = noHealthTest && supervisorAllowsMotors && fresh && activateOk;
 
   float divider = motorDivider;
   uint16_t scaledPwm[4];
@@ -296,7 +329,7 @@ void uart1BridgeApplyOverride(motors_thrust_pwm_t *motorPwm)
     heartbeatCounter = 0;
     if (engage) {
       uart1BridgePrintf("[u1br] active arm=%u self=%u flags=0x%02x pwm=[%u %u %u %u] scaled=[%u %u %u %u] div=%d/1000\r\n",
-                        (unsigned)armed, (unsigned)selfActivate, (unsigned)flags,
+                        (unsigned)armActive, (unsigned)selfActivate, (unsigned)flags,
                         (unsigned)pwm[0], (unsigned)pwm[1],
                         (unsigned)pwm[2], (unsigned)pwm[3],
                         (unsigned)scaledPwm[0], (unsigned)scaledPwm[1],
@@ -304,7 +337,7 @@ void uart1BridgeApplyOverride(motors_thrust_pwm_t *motorPwm)
                         (int)(divider * 1000.0f));
     } else {
       uart1BridgePrintf("[u1br] inactive (arm=%u self=%u fresh=%u flags=0x%02x)\r\n",
-                        (unsigned)armed, (unsigned)selfActivate,
+                        (unsigned)armActive, (unsigned)selfActivate,
                         (unsigned)fresh, (unsigned)flags);
     }
   }
@@ -316,9 +349,17 @@ PARAM_ADD(PARAM_FLOAT, motorDiv, &motorDivider)
 PARAM_GROUP_STOP(u1br)
 
 LOG_GROUP_START(u1br)
+LOG_ADD(LOG_UINT8,  noHealthTest, &noHealthTest)
+LOG_ADD(LOG_UINT8,  supervisorOk, &supervisorAllowsMotors)
+LOG_ADD(LOG_UINT8,  hasFrame, &haveFrame)
+LOG_ADD(LOG_UINT8,  frameFresh, &frameFresh)
 LOG_ADD(LOG_UINT8,  offboardArm, &offboardArm)
+LOG_ADD(LOG_UINT8,  armActive, &armActive)
 LOG_ADD(LOG_UINT8,  flags, &latestFlags)
 LOG_ADD(LOG_UINT8,  selfActive, &selfActivated)
+LOG_ADD(LOG_UINT8,  activateOk, &activateOk)
+LOG_ADD(LOG_UINT8,  divOk, &motorDividerOk)
+LOG_ADD(LOG_UINT8,  motorOutActive, &directEngaged)
 LOG_ADD(LOG_UINT32, framesOk, &framesOk)
 LOG_ADD(LOG_UINT32, framesBadCrc, &framesBadCrc)
 LOG_ADD(LOG_UINT32, framesMsbErr, &framesMsbErr)

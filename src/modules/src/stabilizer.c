@@ -320,7 +320,10 @@ static void stabilizerTask(void* param)
     // update sensorData struct (for logging variables)
     sensorsAcquire(&sensorData);
 
-    if (healthShallWeRunTest()) {
+    const bool noHealthTest = !healthShallWeRunTest();
+
+    if (!noHealthTest) {
+      uart1BridgeSetOutputConditions(false, false);
       healthRunTests(&sensorData);
     } else {
       updateStateEstimatorAndControllerTypes();
@@ -328,6 +331,7 @@ static void stabilizerTask(void* param)
       stateEstimator(&state, stabilizerStep);
 
       const bool areMotorsAllowedToRun = supervisorAreMotorsAllowedToRun();
+      uart1BridgeSetOutputConditions(true, areMotorsAllowedToRun);
 
       // Critical for safety, be careful if you modify this code!
       crtpCommanderBlock(! areMotorsAllowedToRun);

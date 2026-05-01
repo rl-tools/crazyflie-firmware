@@ -52,6 +52,19 @@ static uint8_t motorSetEnable = 0;
 static uint16_t motorPowerSet[] = {0, 0, 0, 0}; // user-requested PWM signals (overrides)
 static uint16_t motor_ratios[] = {0, 0, 0, 0};  // actual PWM signals
 
+static uint8_t motorPowerSetDisabledLogger(uint32_t timestamp, void* data)
+{
+  (void)timestamp;
+  (void)data;
+
+  return motorSetEnable == 0;
+}
+
+static logByFunction_t motorPowerSetDisabledLoggerDef = {
+  .acquireUInt8 = motorPowerSetDisabledLogger,
+  .data = 0,
+};
+
 #ifdef CONFIG_MOTORS_ESC_PROTOCOL_DSHOT
 static DMA_InitTypeDef DMA_InitStructureShare;
 // Memory buffer for DSHOT bits
@@ -752,6 +765,14 @@ PARAM_GROUP_STOP(motorPowerSet)
  * Motor output related log variables.
  */
 LOG_GROUP_START(motor)
+/**
+ * @brief Nonzero if motorPowerSet is disabled and normal motor commands are passed through.
+ */
+LOG_ADD_BY_FUNCTION(LOG_UINT8, pwrSetOff, &motorPowerSetDisabledLoggerDef)
+/**
+ * @brief Current value of motorPowerSet.enable.
+ */
+LOG_ADD(LOG_UINT8, pwrSetEn, &motorSetEnable)
 /**
  * @brief Motor power (PWM value) for M1 [0 - UINT16_MAX]
  */

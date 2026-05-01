@@ -14,6 +14,8 @@ bool uart1BridgeSend(const uint8_t *data, size_t n);
 
 void uart1BridgeApplyOverride(motors_thrust_pwm_t *motorPwm);
 
+void uart1BridgeSetOutputConditions(bool noHealthTest, bool supervisorAllowsMotors);
+
 int uart1BridgePutc(int c);
 
 #define uart1BridgePrintf(FMT, ...) eprintf(uart1BridgePutc, FMT, ## __VA_ARGS__)
