@@ -90,11 +90,13 @@ static bool frameFresh = false;
 static bool armActive = false;
 static bool activateOk = false;
 static bool motorDividerOk = true;
+static bool defaultControllerBlocked = true;
 static bool noHealthTest = true;
 static bool supervisorAllowsMotors = true;
 
 static float motorDivider = 20.0f;
 static float setpointThrust1g = SETPOINT_DEFAULT_THRUST_1G;
+static uint8_t defaultControllerOutput = 0;
 
 static uint8_t setpointSeq = 0;
 static uint32_t setpointFramesSent = 0;
@@ -496,6 +498,7 @@ void uart1BridgeApplyOverride(motors_thrust_pwm_t *motorPwm)
 
   bool selfActivate = selfActivated;
   bool engage = noHealthTest && supervisorAllowsMotors && fresh && activateOk;
+  bool blockDefaultController = !engage && (defaultControllerOutput == 0);
 
   float divider = motorDivider;
   uint16_t scaledPwm[4];
@@ -515,10 +518,16 @@ void uart1BridgeApplyOverride(motors_thrust_pwm_t *motorPwm)
     motorPwm->motors.m2 = scaledPwm[1];
     motorPwm->motors.m3 = scaledPwm[2];
     motorPwm->motors.m4 = scaledPwm[3];
+  } else if (blockDefaultController) {
+    motorPwm->motors.m1 = 0;
+    motorPwm->motors.m2 = 0;
+    motorPwm->motors.m3 = 0;
+    motorPwm->motors.m4 = 0;
   }
 
   directEngaged = engage;
   selfActivated = selfActivate;
+  defaultControllerBlocked = blockDefaultController;
 
   static uint32_t heartbeatCounter = 0;
   if (++heartbeatCounter >= 1000) {
@@ -543,6 +552,7 @@ PARAM_GROUP_START(u1br)
 PARAM_ADD(PARAM_UINT8 | PARAM_RONLY, engaged, &directEngaged)
 PARAM_ADD(PARAM_FLOAT, motorDiv, &motorDivider)
 PARAM_ADD(PARAM_FLOAT, thrust1g, &setpointThrust1g)
+PARAM_ADD(PARAM_UINT8, defaultCtl, &defaultControllerOutput)
 PARAM_GROUP_STOP(u1br)
 
 LOG_GROUP_START(u1br)
@@ -557,6 +567,8 @@ LOG_ADD(LOG_UINT8,  selfActive, &selfActivated)
 LOG_ADD(LOG_UINT8,  activateOk, &activateOk)
 LOG_ADD(LOG_UINT8,  divOk, &motorDividerOk)
 LOG_ADD(LOG_UINT8,  motorOutActive, &directEngaged)
+LOG_ADD(LOG_UINT8,  defaultCtl, &defaultControllerOutput)
+LOG_ADD(LOG_UINT8,  defaultBlock, &defaultControllerBlocked)
 LOG_ADD(LOG_UINT32, framesOk, &framesOk)
 LOG_ADD(LOG_UINT32, framesBadCrc, &framesBadCrc)
 LOG_ADD(LOG_UINT32, framesMsbErr, &framesMsbErr)
