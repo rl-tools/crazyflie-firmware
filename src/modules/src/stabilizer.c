@@ -340,6 +340,9 @@ static void stabilizerTask(void* param)
         commanderSetSetpoint(&tempSetpoint, COMMANDER_PRIORITY_HIGHLEVEL);
       }
       commanderGetSetpoint(&setpoint, &state);
+      if (RATE_DO_EXECUTE(RATE_100_HZ, stabilizerStep)) {
+        uart1BridgeSendAttitudeSetpoint(&setpoint);
+      }
 
       // Critical for safety, be careful if you modify this code!
       // Let the supervisor update it's view of the current situation

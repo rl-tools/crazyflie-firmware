@@ -1,5 +1,7 @@
 #define DEBUG_MODULE "U1BR"
 
+#include <math.h>
+
 #include "uart1_bridge.h"
 
 #include "FreeRTOS.h"
@@ -40,6 +42,24 @@
 #define OFFBOARD_TIMEOUT_MS          50
 #define ARM_TIMEOUT_MS               200
 
+// CF -> OpenMV attitude-setpoint frame:
+// byte 0 has bit 7 set and type 0x02 in bits 0..6, followed by 13 bytes of
+// 7-bit-packed payload. Raw payload is seq + four int16/uint16 fixed-point
+// setpoint values + CRC16 over the start byte and raw bytes 0..8.
+#define SETPOINT_FRAME_TYPE_ATTITUDE  0x02
+#define SETPOINT_FRAME_START_BYTE     (FRAME_START_MASK | SETPOINT_FRAME_TYPE_ATTITUDE)
+#define SETPOINT_RAW_BYTES            11
+#define SETPOINT_DATA_BYTES           13
+#define SETPOINT_FRAME_BYTES          (1 + SETPOINT_DATA_BYTES)
+#define SETPOINT_CRC_PAYLOAD_BYTES    10
+#define SETPOINT_SCALE                10000.0f
+
+#define SETPOINT_MAX_TILT_RAD         0.5235987755982988f
+#define SETPOINT_MAX_YAW_RATE_RAD_S   2.0f
+#define SETPOINT_MIN_THRUST_G         0.4f
+#define SETPOINT_MAX_THRUST_G         1.4f
+#define SETPOINT_DEFAULT_THRUST_1G    39000.0f
+
 static xQueueHandle txQueue;
 STATIC_MEM_QUEUE_ALLOC(txQueue, TX_QUEUE_LENGTH, sizeof(uint8_t));
 
@@ -74,6 +94,16 @@ static bool noHealthTest = true;
 static bool supervisorAllowsMotors = true;
 
 static float motorDivider = 20.0f;
+static float setpointThrust1g = SETPOINT_DEFAULT_THRUST_1G;
+
+static uint8_t setpointSeq = 0;
+static uint32_t setpointFramesSent = 0;
+static uint32_t setpointFramesDropped = 0;
+static uint32_t setpointUnsupportedMode = 0;
+static float latestSetpointRollRad = 0.0f;
+static float latestSetpointPitchRad = 0.0f;
+static float latestSetpointYawRateRad = 0.0f;
+static float latestSetpointThrustG = 1.0f;
 
 static uint16_t crc16_ccitt(const uint8_t *data, size_t n)
 {
@@ -100,6 +130,115 @@ static void unpack7(const uint8_t in[FRAME_DATA_BYTES], uint8_t out[FRAME_RAW_BY
       out[outIdx++] = (uint8_t)((acc >> nbits) & 0xFF);
     }
   }
+}
+
+static void pack7(const uint8_t *in, size_t rawLen, uint8_t *out)
+{
+  uint32_t acc = 0;
+  int nbits = 0;
+  size_t w = 0;
+  for (size_t i = 0; i < rawLen; i++) {
+    acc = (acc << 8) | in[i];
+    nbits += 8;
+    while (nbits >= 7) {
+      nbits -= 7;
+      out[w++] = (uint8_t)((acc >> nbits) & 0x7F);
+    }
+  }
+  if (nbits > 0) {
+    out[w++] = (uint8_t)((acc << (7 - nbits)) & 0x7F);
+  }
+}
+
+static float clampf_local(float v, float lo, float hi)
+{
+  if (v < lo) {
+    return lo;
+  }
+  if (v > hi) {
+    return hi;
+  }
+  return v;
+}
+
+static int16_t fixedPointS16(float v)
+{
+  float scaled = v * SETPOINT_SCALE;
+  scaled = clampf_local(scaled, -32768.0f, 32767.0f);
+  return (int16_t)(scaled >= 0.0f ? scaled + 0.5f : scaled - 0.5f);
+}
+
+static uint16_t fixedPointU16(float v)
+{
+  float scaled = v * SETPOINT_SCALE;
+  scaled = clampf_local(scaled, 0.0f, 65535.0f);
+  return (uint16_t)(scaled + 0.5f);
+}
+
+static void putU16Be(uint8_t *dst, uint16_t v)
+{
+  dst[0] = (uint8_t)((v >> 8) & 0xFF);
+  dst[1] = (uint8_t)(v & 0xFF);
+}
+
+static void projectTiltCone(float *roll, float *pitch)
+{
+  float sinRoll = sinf(*roll);
+  float cosRoll = cosf(*roll);
+  float sinPitch = sinf(*pitch);
+  float cosPitch = cosf(*pitch);
+
+  float worldZBodyX = -sinPitch;
+  float worldZBodyY = cosPitch * sinRoll;
+  float worldZBodyZ = cosPitch * cosRoll;
+
+  const float cosTiltMax = cosf(SETPOINT_MAX_TILT_RAD);
+  if (worldZBodyZ >= cosTiltMax) {
+    return;
+  }
+
+  float horizontal = sqrtf(worldZBodyX * worldZBodyX + worldZBodyY * worldZBodyY);
+  if (horizontal < 1.0e-6f) {
+    *roll = 0.0f;
+    *pitch = 0.0f;
+    return;
+  }
+
+  const float sinTiltMax = sinf(SETPOINT_MAX_TILT_RAD);
+  worldZBodyX *= sinTiltMax / horizontal;
+  worldZBodyY *= sinTiltMax / horizontal;
+  worldZBodyZ = cosTiltMax;
+
+  *roll = atan2f(worldZBodyY, worldZBodyZ);
+  *pitch = atan2f(-worldZBodyX, sqrtf(worldZBodyY * worldZBodyY + worldZBodyZ * worldZBodyZ));
+}
+
+static bool attitudeSetpointModeSupported(const setpoint_t *setpoint)
+{
+  return setpoint != NULL &&
+         setpoint->mode.x == modeDisable &&
+         setpoint->mode.y == modeDisable &&
+         setpoint->mode.z == modeDisable &&
+         setpoint->mode.roll == modeAbs &&
+         setpoint->mode.pitch == modeAbs &&
+         setpoint->mode.yaw == modeVelocity;
+}
+
+static bool uart1BridgeSendAllOrDrop(const uint8_t *data, size_t n)
+{
+  if (!isInit || data == NULL) {
+    return false;
+  }
+  if (uxQueueSpacesAvailable(txQueue) < n) {
+    return false;
+  }
+
+  for (size_t i = 0; i < n; i++) {
+    if (xQueueSend(txQueue, &data[i], 0) != pdTRUE) {
+      return false;
+    }
+  }
+  return true;
 }
 
 static void applyFrame(uint8_t startByte, const uint8_t raw[FRAME_RAW_BYTES])
@@ -221,16 +360,7 @@ void uart1BridgeInit(void)
 
 bool uart1BridgeSend(const uint8_t *data, size_t n)
 {
-  if (!isInit || data == NULL) {
-    return false;
-  }
-
-  for (size_t i = 0; i < n; i++) {
-    if (xQueueSend(txQueue, &data[i], 0) != pdTRUE) {
-      return false;
-    }
-  }
-  return true;
+  return uart1BridgeSendAllOrDrop(data, n);
 }
 
 int uart1BridgePutc(int c)
@@ -241,6 +371,72 @@ int uart1BridgePutc(int c)
   }
   xQueueSend(txQueue, &b, 0);
   return c;
+}
+
+void uart1BridgeSendAttitudeSetpoint(const setpoint_t *setpoint)
+{
+  float rollRad = 0.0f;
+  float pitchRad = 0.0f;
+  float yawRateRad = 0.0f;
+  float thrustG = 1.0f;
+
+  if (attitudeSetpointModeSupported(setpoint)) {
+    rollRad = setpoint->attitude.roll * (float)M_PI / 180.0f;
+    pitchRad = setpoint->attitude.pitch * (float)M_PI / 180.0f;
+    yawRateRad = setpoint->attitudeRate.yaw * (float)M_PI / 180.0f;
+    if (setpointThrust1g > 1.0f) {
+      thrustG = setpoint->thrust / setpointThrust1g;
+    }
+  } else {
+    setpointUnsupportedMode++;
+  }
+
+  if (!isfinite(rollRad)) {
+    rollRad = 0.0f;
+  }
+  if (!isfinite(pitchRad)) {
+    pitchRad = 0.0f;
+  }
+  if (!isfinite(yawRateRad)) {
+    yawRateRad = 0.0f;
+  }
+  if (!isfinite(thrustG)) {
+    thrustG = 1.0f;
+  }
+
+  projectTiltCone(&rollRad, &pitchRad);
+  yawRateRad = clampf_local(yawRateRad, -SETPOINT_MAX_YAW_RATE_RAD_S, SETPOINT_MAX_YAW_RATE_RAD_S);
+  thrustG = clampf_local(thrustG, SETPOINT_MIN_THRUST_G, SETPOINT_MAX_THRUST_G);
+
+  uint8_t raw[SETPOINT_RAW_BYTES];
+  uint8_t crcPayload[SETPOINT_CRC_PAYLOAD_BYTES];
+  uint8_t frame[SETPOINT_FRAME_BYTES];
+
+  raw[0] = setpointSeq++;
+  putU16Be(&raw[1], (uint16_t)fixedPointS16(rollRad));
+  putU16Be(&raw[3], (uint16_t)fixedPointS16(pitchRad));
+  putU16Be(&raw[5], (uint16_t)fixedPointS16(yawRateRad));
+  putU16Be(&raw[7], fixedPointU16(thrustG));
+
+  crcPayload[0] = SETPOINT_FRAME_START_BYTE;
+  for (int i = 0; i < 9; i++) {
+    crcPayload[i + 1] = raw[i];
+  }
+  uint16_t crc = crc16_ccitt(crcPayload, SETPOINT_CRC_PAYLOAD_BYTES);
+  putU16Be(&raw[9], crc);
+
+  frame[0] = SETPOINT_FRAME_START_BYTE;
+  pack7(raw, SETPOINT_RAW_BYTES, &frame[1]);
+
+  if (uart1BridgeSendAllOrDrop(frame, sizeof(frame))) {
+    setpointFramesSent++;
+    latestSetpointRollRad = rollRad;
+    latestSetpointPitchRad = pitchRad;
+    latestSetpointYawRateRad = yawRateRad;
+    latestSetpointThrustG = thrustG;
+  } else {
+    setpointFramesDropped++;
+  }
 }
 
 static void refreshOutputConditions(void)
@@ -346,6 +542,7 @@ void uart1BridgeApplyOverride(motors_thrust_pwm_t *motorPwm)
 PARAM_GROUP_START(u1br)
 PARAM_ADD(PARAM_UINT8 | PARAM_RONLY, engaged, &directEngaged)
 PARAM_ADD(PARAM_FLOAT, motorDiv, &motorDivider)
+PARAM_ADD(PARAM_FLOAT, thrust1g, &setpointThrust1g)
 PARAM_GROUP_STOP(u1br)
 
 LOG_GROUP_START(u1br)
@@ -364,6 +561,13 @@ LOG_ADD(LOG_UINT32, framesOk, &framesOk)
 LOG_ADD(LOG_UINT32, framesBadCrc, &framesBadCrc)
 LOG_ADD(LOG_UINT32, framesMsbErr, &framesMsbErr)
 LOG_ADD(LOG_UINT32, framesBadFlags, &framesBadFlags)
+LOG_ADD(LOG_UINT32, spSent, &setpointFramesSent)
+LOG_ADD(LOG_UINT32, spDrop, &setpointFramesDropped)
+LOG_ADD(LOG_UINT32, spBadMode, &setpointUnsupportedMode)
+LOG_ADD(LOG_FLOAT, spRoll, &latestSetpointRollRad)
+LOG_ADD(LOG_FLOAT, spPitch, &latestSetpointPitchRad)
+LOG_ADD(LOG_FLOAT, spYawRate, &latestSetpointYawRateRad)
+LOG_ADD(LOG_FLOAT, spThrustG, &latestSetpointThrustG)
 LOG_ADD(LOG_UINT16, pwm0, &latestPwm[0])
 LOG_ADD(LOG_UINT16, pwm1, &latestPwm[1])
 LOG_ADD(LOG_UINT16, pwm2, &latestPwm[2])
