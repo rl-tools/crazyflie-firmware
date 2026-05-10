@@ -384,7 +384,7 @@ void uart1BridgeSendAttitudeSetpoint(const setpoint_t *setpoint)
 
   if (attitudeSetpointModeSupported(setpoint)) {
     rollRad = setpoint->attitude.roll * (float)M_PI / 180.0f;
-    pitchRad = setpoint->attitude.pitch * (float)M_PI / 180.0f;
+    pitchRad = -setpoint->attitude.pitch * (float)M_PI / 180.0f;
     yawRateRad = setpoint->attitudeRate.yaw * (float)M_PI / 180.0f;
     if (setpointThrust1g > 1.0f) {
       thrustG = setpoint->thrust / setpointThrust1g;
